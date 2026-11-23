@@ -1,0 +1,100 @@
+{
+  "description": "Sample claims adjudication integration with automated approval, review, and denial rules",
+  "cloudLoggingDetails": {
+    "enableCloudLogging": true,
+    "cloudLoggingSeverity": "INFO"
+  },
+  "triggerConfigs": [
+    {
+      "label": "adjudicate_claim",
+      "triggerType": "API",
+      "triggerNumber": "1",
+      "triggerId": "api_trigger/adjudicate_claim",
+      "properties": {
+        "Trigger name": "adjudicate_claim"
+      },
+      "startTasks": [
+        {
+          "taskId": "1"
+        }
+      ],
+      "inputVariables": {
+        "names": [
+          "claimId",
+          "claimAmount",
+          "policyActive"
+        ]
+      },
+      "outputVariables": {
+        "names": [
+          "decision",
+          "reason"
+        ]
+      }
+    }
+  ],
+  "taskConfigs": [
+    {
+      "task": "JavaScriptTask",
+      "taskId": "1",
+      "displayName": "Adjudicate Claim Rules",
+      "taskExecutionStrategy": "WHEN_ALL_SUCCEED",
+      "parameters": {
+        "javaScriptEngine": {
+          "key": "javaScriptEngine",
+          "value": {
+            "stringValue": "V8"
+          }
+        },
+        "script": {
+          "key": "script",
+          "value": {
+            "stringValue": "function executesScript(event) {\n  var claimId = event.getParameter('claimId');\n  var claimAmount = event.getParameter('claimAmount');\n  var policyActive = event.getParameter('policyActive');\n\n  var isPolicyActive = (policyActive === true || policyActive === 'true');\n  var amount = Number(claimAmount);\n\n  if (!isPolicyActive) {\n    event.setParameter('decision', 'DENY');\n    event.setParameter('reason', 'Policy is inactive');\n  } else if (amount <= 1000) {\n    event.setParameter('decision', 'APPROVE');\n    event.setParameter('reason', 'Claim amount is within auto-approval threshold');\n  } else {\n    event.setParameter('decision', 'REVIEW');\n    event.setParameter('reason', 'Claim amount exceeds threshold; manual review required');\n  }\n}\n\nfunction executeScript(event) {\n  executesScript(event);\n}"
+          }
+        }
+      }
+    }
+  ],
+  "integrationParameters": [
+    {
+      "key": "claimId",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "IN",
+      "defaultValue": {
+        "stringValue": ""
+      }
+    },
+    {
+      "key": "claimAmount",
+      "dataType": "DOUBLE_VALUE",
+      "inputOutputType": "IN",
+      "defaultValue": {
+        "doubleValue": 0.0
+      }
+    },
+    {
+      "key": "policyActive",
+      "dataType": "BOOLEAN_VALUE",
+      "inputOutputType": "IN",
+      "defaultValue": {
+        "booleanValue": false
+      }
+    },
+    {
+      "key": "decision",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "OUT",
+      "defaultValue": {
+        "stringValue": ""
+      }
+    },
+    {
+      "key": "reason",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "OUT",
+      "defaultValue": {
+        "stringValue": ""
+      }
+    }
+  ]
+}

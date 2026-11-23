@@ -1,0 +1,970 @@
+{
+  "description": "Monitora Google Drive, baixa o documento inteiro, analisa com o agente analisador-pedidos-causa (A2A) em us-west1 e grava no Google Sheets se valor > R$ 1000",
+  "cloudLoggingDetails": {
+    "enableCloudLogging": true,
+    "cloudLoggingSeverity": "INFO"
+  },
+  "runAsServiceAccount": "appint-drive-sheets@proj-prod-app1-439018.iam.gserviceaccount.com",
+  "triggerConfigs": [
+    {
+      "label": "API Trigger Claims Processor",
+      "triggerType": "API",
+      "triggerNumber": "1",
+      "triggerId": "api_trigger/drive_claims_processor",
+      "properties": {
+        "Trigger name": "drive_claims_processor"
+      },
+      "startTasks": [
+        {
+          "taskId": "1"
+        }
+      ],
+      "outputVariables": {
+        "names": [
+          "document_name",
+          "acima_de_mil",
+          "valor_causa",
+          "analysis_result",
+          "sheets_status",
+          "status"
+        ]
+      }
+    },
+    {
+      "label": "Schedule Check Every 15 Min",
+      "triggerType": "CRON",
+      "triggerNumber": "2",
+      "triggerId": "cron_trigger/drive_claims_schedule",
+      "properties": {
+        "Timer Name": "drive_claims_schedule",
+        "Scheduled Time spec": "*/15 * * * *"
+      },
+      "startTasks": [
+        {
+          "taskId": "1"
+        }
+      ]
+    }
+  ],
+  "taskConfigs": [
+    {
+      "task": "GenericRestV2Task",
+      "taskId": "1",
+      "displayName": "List Drive Files in Folder",
+      "taskExecutionStrategy": "WHEN_ALL_SUCCEED",
+      "nextTasks": [
+        {
+          "taskId": "2"
+        }
+      ],
+      "parameters": {
+        "throwError": {
+          "key": "throwError",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "responseBody": {
+          "key": "responseBody",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_1_responseBody`$"
+              ]
+            }
+          }
+        },
+        "responseHeader": {
+          "key": "responseHeader",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_1_responseHeader`$"
+              ]
+            }
+          }
+        },
+        "responseStatus": {
+          "key": "responseStatus",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_1_responseStatus`$"
+              ]
+            }
+          }
+        },
+        "userAgent": {
+          "key": "userAgent",
+          "value": {
+            "stringValue": ""
+          }
+        },
+        "httpMethod": {
+          "key": "httpMethod",
+          "value": {
+            "stringValue": "GET"
+          }
+        },
+        "url": {
+          "key": "url",
+          "value": {
+            "stringValue": "https://www.googleapis.com/drive/v3/files?q='14dZ6mA6hNNOqxixI679NG2mSCG6g_dMO'+in+parents+and+mimeType!=%27application/vnd.google-apps.folder%27+and+trashed=false"
+          }
+        },
+        "urlFetchingService": {
+          "key": "urlFetchingService",
+          "value": {
+            "stringValue": "HARPOON"
+          }
+        },
+        "useSSL": {
+          "key": "useSSL",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "disableSSLValidation": {
+          "key": "disableSSLValidation",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "followRedirects": {
+          "key": "followRedirects",
+          "value": {
+            "booleanValue": true
+          }
+        },
+        "requestorId": {
+          "key": "requestorId",
+          "value": {
+            "stringValue": ""
+          }
+        },
+        "requestBody": {
+          "key": "requestBody",
+          "value": {
+            "stringValue": ""
+          }
+        },
+        "httpParams": {
+          "key": "httpParams"
+        },
+        "urlQueryStrings": {
+          "key": "urlQueryStrings"
+        },
+        "additionalHeaders": {
+          "key": "additionalHeaders"
+        },
+        "authConfig": {
+          "key": "authConfig",
+          "value": {
+            "jsonValue": "{\"@type\": \"type.googleapis.com/enterprise.crm.eventbus.authconfig.AuthConfigTaskParam\", \"authConfigId\": \"e2bbf6a3-8d6b-43a4-a491-5011bc9bee1e\"}"
+          }
+        }
+      }
+    },
+    {
+      "task": "JavaScriptTask",
+      "taskId": "2",
+      "displayName": "Select File or Direct Input",
+      "taskExecutionStrategy": "WHEN_ALL_SUCCEED",
+      "nextTasks": [
+        {
+          "taskId": "3",
+          "condition": "$has_file_to_download$ = true"
+        },
+        {
+          "taskId": "4",
+          "condition": "$has_file_to_download$ = false AND $has_document_to_process$ = true"
+        }
+      ],
+      "parameters": {
+        "javaScriptEngine": {
+          "key": "javaScriptEngine",
+          "value": {
+            "stringValue": "V8"
+          }
+        },
+        "script": {
+          "key": "script",
+          "value": {
+            "stringValue": "function executeScript(event) {\n  var rawDriveResp = event.getParameter('`Task_1_responseBody`') || event.getParameter('Task_1_responseBody') || '';\n  var inputDocName = event.getParameter('document_name') || '';\n  var inputDocContent = event.getParameter('document_content') || '';\n  \n  var hasFileToDownload = false;\n  var hasDocToProcess = false;\n  var downloadUrl = '';\n  var docName = inputDocName || 'Documento';\n  var fileId = '';\n  \n  if (typeof rawDriveResp === 'string' && rawDriveResp.length > 0) {\n    try {\n      var data = JSON.parse(rawDriveResp);\n      if (data.files && Array.isArray(data.files) && data.files.length > 0) {\n        var firstFile = data.files[0];\n        fileId = firstFile.id;\n        docName = firstFile.name;\n        var mimeType = firstFile.mimeType || '';\n        \n        if (mimeType === 'application/vnd.google-apps.document') {\n          downloadUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '/export?mimeType=text/plain';\n        } else {\n          downloadUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media';\n        }\n        hasFileToDownload = true;\n        hasDocToProcess = true;\n      }\n    } catch (e) {}\n  }\n  \n  if (!hasDocToProcess && typeof inputDocContent === 'string' && inputDocContent.length > 0) {\n    hasDocToProcess = true;\n  }\n  \n  event.setParameter('file_id', fileId);\n  event.setParameter('document_name', docName);\n  event.setParameter('drive_download_url', downloadUrl);\n  event.setParameter('has_file_to_download', hasFileToDownload);\n  event.setParameter('has_document_to_process', hasDocToProcess);\n}\nvar executesScript = executeScript;\n"
+          }
+        }
+      }
+    },
+    {
+      "task": "GenericRestV2Task",
+      "taskId": "3",
+      "displayName": "Download Full Document Content from Drive",
+      "taskExecutionStrategy": "WHEN_ALL_SUCCEED",
+      "nextTasks": [
+        {
+          "taskId": "4"
+        }
+      ],
+      "parameters": {
+        "throwError": {
+          "key": "throwError",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "responseBody": {
+          "key": "responseBody",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_3_responseBody`$"
+              ]
+            }
+          }
+        },
+        "responseHeader": {
+          "key": "responseHeader",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_3_responseHeader`$"
+              ]
+            }
+          }
+        },
+        "responseStatus": {
+          "key": "responseStatus",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_3_responseStatus`$"
+              ]
+            }
+          }
+        },
+        "userAgent": {
+          "key": "userAgent",
+          "value": {
+            "stringValue": ""
+          }
+        },
+        "httpMethod": {
+          "key": "httpMethod",
+          "value": {
+            "stringValue": "GET"
+          }
+        },
+        "url": {
+          "key": "url",
+          "value": {
+            "stringValue": "$drive_download_url$"
+          }
+        },
+        "urlFetchingService": {
+          "key": "urlFetchingService",
+          "value": {
+            "stringValue": "HARPOON"
+          }
+        },
+        "useSSL": {
+          "key": "useSSL",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "disableSSLValidation": {
+          "key": "disableSSLValidation",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "followRedirects": {
+          "key": "followRedirects",
+          "value": {
+            "booleanValue": true
+          }
+        },
+        "requestorId": {
+          "key": "requestorId",
+          "value": {
+            "stringValue": ""
+          }
+        },
+        "requestBody": {
+          "key": "requestBody",
+          "value": {
+            "stringValue": ""
+          }
+        },
+        "httpParams": {
+          "key": "httpParams"
+        },
+        "urlQueryStrings": {
+          "key": "urlQueryStrings"
+        },
+        "additionalHeaders": {
+          "key": "additionalHeaders"
+        },
+        "authConfig": {
+          "key": "authConfig",
+          "value": {
+            "jsonValue": "{\"@type\": \"type.googleapis.com/enterprise.crm.eventbus.authconfig.AuthConfigTaskParam\", \"authConfigId\": \"e2bbf6a3-8d6b-43a4-a491-5011bc9bee1e\"}"
+          }
+        }
+      }
+    },
+    {
+      "task": "JavaScriptTask",
+      "taskId": "4",
+      "displayName": "Prepare Full Document Agent Message",
+      "taskExecutionStrategy": "WHEN_ANY_SUCCEED",
+      "nextTasks": [
+        {
+          "taskId": "5"
+        }
+      ],
+      "parameters": {
+        "javaScriptEngine": {
+          "key": "javaScriptEngine",
+          "value": {
+            "stringValue": "V8"
+          }
+        },
+        "script": {
+          "key": "script",
+          "value": {
+            "stringValue": "function executesScript(event) {\n  var downloadedBody = event.getParameter('`Task_3_responseBody`') || event.getParameter('Task_3_responseBody') || '';\n  var inputDocContent = event.getParameter('document_content') || '';\n  var docName = event.getParameter('document_name') || 'Documento';\n\n  var fullContent = downloadedBody || inputDocContent || '';\n\n  var userPromptText = 'Analise o seguinte documento na íntegra para identificação jurídica e verificação de pedidos:\\n' +\n    'Nome do Arquivo: ' + docName + '\\n\\n' +\n    '===== INÍCIO DO DOCUMENTO COMPLETO =====\\n' +\n    fullContent + '\\n' +\n    '===== FIM DO DOCUMENTO COMPLETO =====';\n\n  var a2aPayload = {\n    message: {\n      role: 'ROLE_USER',\n      content: [\n        {\n          text: userPromptText\n        }\n      ]\n    }\n  };\n\n  event.setParameter('agent_request_body', JSON.stringify(a2aPayload));\n  event.setParameter('status', 'FULL_DOCUMENT_PAYLOAD_PREPARED');\n}\n\nfunction executeScript(event) {\n  executesScript(event);\n}"
+          }
+        }
+      }
+    },
+    {
+      "task": "GenericRestV2Task",
+      "taskId": "5",
+      "displayName": "Invoke Agent analisador-pedidos-causa",
+      "taskExecutionStrategy": "WHEN_ALL_SUCCEED",
+      "nextTasks": [
+        {
+          "taskId": "6"
+        }
+      ],
+      "parameters": {
+        "throwError": {
+          "key": "throwError",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "responseBody": {
+          "key": "responseBody",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_5_responseBody`$"
+              ]
+            }
+          }
+        },
+        "responseHeader": {
+          "key": "responseHeader",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_5_responseHeader`$"
+              ]
+            }
+          }
+        },
+        "responseStatus": {
+          "key": "responseStatus",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_5_responseStatus`$"
+              ]
+            }
+          }
+        },
+        "userAgent": {
+          "key": "userAgent",
+          "value": {
+            "stringValue": ""
+          }
+        },
+        "httpMethod": {
+          "key": "httpMethod",
+          "value": {
+            "stringValue": "POST"
+          }
+        },
+        "url": {
+          "key": "url",
+          "value": {
+            "stringValue": "$agent_endpoint_url$"
+          }
+        },
+        "urlFetchingService": {
+          "key": "urlFetchingService",
+          "value": {
+            "stringValue": "HARPOON"
+          }
+        },
+        "useSSL": {
+          "key": "useSSL",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "disableSSLValidation": {
+          "key": "disableSSLValidation",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "followRedirects": {
+          "key": "followRedirects",
+          "value": {
+            "booleanValue": true
+          }
+        },
+        "requestorId": {
+          "key": "requestorId",
+          "value": {
+            "stringValue": ""
+          }
+        },
+        "requestBody": {
+          "key": "requestBody",
+          "value": {
+            "stringValue": "$agent_request_body$"
+          }
+        },
+        "httpParams": {
+          "key": "httpParams"
+        },
+        "urlQueryStrings": {
+          "key": "urlQueryStrings"
+        },
+        "additionalHeaders": {
+          "key": "additionalHeaders"
+        }
+      }
+    },
+    {
+      "task": "JavaScriptTask",
+      "taskId": "6",
+      "displayName": "Evaluate Claim Amount & Prepare Sheets Row",
+      "taskExecutionStrategy": "WHEN_ALL_SUCCEED",
+      "nextTasks": [
+        {
+          "taskId": "7",
+          "condition": "$should_append_sheets$ = true"
+        },
+        {
+          "taskId": "8",
+          "condition": "$should_append_sheets$ = false"
+        }
+      ],
+      "parameters": {
+        "javaScriptEngine": {
+          "key": "javaScriptEngine",
+          "value": {
+            "stringValue": "V8"
+          }
+        },
+        "script": {
+          "key": "script",
+          "value": {
+            "stringValue": "function executesScript(event) {\n  var agentRespRaw = event.getParameter('`Task_5_responseBody`') || event.getParameter('Task_5_responseBody') || '';\n  var docName = event.getParameter('document_name') || 'Documento';\n  \n  var result = null;\n  \n  if (typeof agentRespRaw === 'string' && agentRespRaw.length > 0) {\n    var lines = agentRespRaw.split('\\n');\n    var cleanedLines = [];\n    for (var i = 0; i < lines.length; i++) {\n      var l = lines[i].replace(/\\r/g, '').trim();\n      if (l.indexOf('data:') === 0) {\n        cleanedLines.push(l.substring(5).trim());\n      } else if (l === '') {\n        cleanedLines.push('---EVENT_BOUNDARY---');\n      }\n    }\n    \n    var events = cleanedLines.join('\\n').split('---EVENT_BOUNDARY---');\n    for (var j = events.length - 1; j >= 0; j--) {\n      var ev = events[j].trim();\n      if (!ev) continue;\n      try {\n        var obj = JSON.parse(ev);\n        var text = '';\n        if (obj.artifactUpdate && obj.artifactUpdate.artifact && obj.artifactUpdate.artifact.parts) {\n          text = obj.artifactUpdate.artifact.parts[0].text;\n        } else if (obj.statusUpdate && obj.statusUpdate.status && obj.statusUpdate.status.message && obj.statusUpdate.status.message.content) {\n          text = obj.statusUpdate.status.message.content[0].text;\n        }\n        if (text && text.indexOf('acima_de_mil') !== -1) {\n          var cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();\n          result = JSON.parse(cleanText);\n          break;\n        }\n      } catch (e) {}\n    }\n  }\n\n  if (!result && typeof agentRespRaw === 'string') {\n    try {\n      var parsed = JSON.parse(agentRespRaw);\n      if (parsed.acima_de_mil !== undefined) {\n        result = parsed;\n      }\n    } catch (e) {}\n  }\n\n  if (!result) {\n    event.setParameter('status', 'ERROR_PARSING_AGENT_RESPONSE');\n    event.setParameter('should_append_sheets', false);\n    return;\n  }\n\n  var rawVal = result.valor_causa;\n  var valorCausa = 0;\n  if (typeof rawVal === 'number') {\n    valorCausa = rawVal;\n  } else if (typeof rawVal === 'string') {\n    var cleaned = rawVal.replace(/[^\\d.,]/g, '').trim();\n    if (cleaned.indexOf(',') !== -1 && cleaned.indexOf('.') !== -1) {\n      cleaned = cleaned.replace(/\\./g, '').replace(',', '.');\n    } else if (cleaned.indexOf(',') !== -1) {\n      cleaned = cleaned.replace(',', '.');\n    }\n    var num = parseFloat(cleaned);\n    valorCausa = isNaN(num) ? 0 : num;\n  }\n\n  var acimaDeMil = (result.acima_de_mil === true || valorCausa > 1000);\n\n  event.setParameter('valor_causa', valorCausa);\n  event.setParameter('acima_de_mil', acimaDeMil);\n  event.setParameter('analysis_result', JSON.stringify(result));\n\n  var resumo = (result.resumo_pedido || '').toLowerCase();\n  var isBinaryError = (resumo.indexOf('binário') !== -1 || resumo.indexOf('ilegível') !== -1 || resumo.indexOf('.docx') !== -1);\n\n  if (isBinaryError) {\n    event.setParameter('should_append_sheets', false);\n    event.setParameter('status', 'ERROR_UNREADABLE_FILE_FORMAT');\n  } else if (acimaDeMil) {\n    event.setParameter('should_append_sheets', true);\n    event.setParameter('status', 'CLAIM_EXCEEDS_1000_RECORDING_TO_SHEETS');\n\n    var nowIso = new Date().toISOString();\n    var row = [\n      nowIso,\n      docName,\n      result.tipo_documento || 'Petição',\n      result.numero_processo || 'Não identificado',\n      result.autor || 'Não informado',\n      result.reu || 'Não informado',\n      valorCausa,\n      result.resumo_pedido || ''\n    ];\n\n    var sheetsPayload = {\n      range: 'Sheet1!A1',\n      majorDimension: 'ROWS',\n      values: [row]\n    };\n\n    event.setParameter('sheets_append_body', JSON.stringify(sheetsPayload));\n  } else {\n    event.setParameter('should_append_sheets', false);\n    event.setParameter('status', 'CLAIM_UNDER_OR_EQUAL_1000_IGNORED');\n  }\n}\n\nfunction executeScript(event) {\n  executesScript(event);\n}\n"
+          }
+        }
+      }
+    },
+    {
+      "task": "GenericRestV2Task",
+      "taskId": "7",
+      "displayName": "Append Row to Google Sheets",
+      "taskExecutionStrategy": "WHEN_ALL_SUCCEED",
+      "nextTasks": [
+        {
+          "taskId": "8"
+        }
+      ],
+      "parameters": {
+        "throwError": {
+          "key": "throwError",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "responseBody": {
+          "key": "responseBody",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_7_responseBody`$"
+              ]
+            }
+          }
+        },
+        "responseHeader": {
+          "key": "responseHeader",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_7_responseHeader`$"
+              ]
+            }
+          }
+        },
+        "responseStatus": {
+          "key": "responseStatus",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_7_responseStatus`$"
+              ]
+            }
+          }
+        },
+        "userAgent": {
+          "key": "userAgent",
+          "value": {
+            "stringValue": ""
+          }
+        },
+        "httpMethod": {
+          "key": "httpMethod",
+          "value": {
+            "stringValue": "POST"
+          }
+        },
+        "url": {
+          "key": "url",
+          "value": {
+            "stringValue": "https://sheets.googleapis.com/v4/spreadsheets/1mjqIz1LvNwyZSj1_LTfKcMVbb4jDIULjNb-YQmkrKr8/values/Sheet1!A1:append?valueInputOption=USER_ENTERED"
+          }
+        },
+        "urlFetchingService": {
+          "key": "urlFetchingService",
+          "value": {
+            "stringValue": "HARPOON"
+          }
+        },
+        "useSSL": {
+          "key": "useSSL",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "disableSSLValidation": {
+          "key": "disableSSLValidation",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "followRedirects": {
+          "key": "followRedirects",
+          "value": {
+            "booleanValue": true
+          }
+        },
+        "requestorId": {
+          "key": "requestorId",
+          "value": {
+            "stringValue": ""
+          }
+        },
+        "requestBody": {
+          "key": "requestBody",
+          "value": {
+            "stringValue": "$sheets_append_body$"
+          }
+        },
+        "httpParams": {
+          "key": "httpParams"
+        },
+        "urlQueryStrings": {
+          "key": "urlQueryStrings"
+        },
+        "additionalHeaders": {
+          "key": "additionalHeaders"
+        },
+        "authConfig": {
+          "key": "authConfig",
+          "value": {
+            "jsonValue": "{\"@type\": \"type.googleapis.com/enterprise.crm.eventbus.authconfig.AuthConfigTaskParam\", \"authConfigId\": \"e2bbf6a3-8d6b-43a4-a491-5011bc9bee1e\"}"
+          }
+        }
+      }
+    },
+    {
+      "task": "JavaScriptTask",
+      "taskId": "8",
+      "displayName": "Finalize Output",
+      "taskExecutionStrategy": "WHEN_ANY_SUCCEED",
+      "parameters": {
+        "javaScriptEngine": {
+          "key": "javaScriptEngine",
+          "value": {
+            "stringValue": "V8"
+          }
+        },
+        "script": {
+          "key": "script",
+          "value": {
+            "stringValue": "function executesScript(event) {\n  var sheetsResp = event.getParameter('`Task_7_responseBody`') || event.getParameter('Task_7_responseBody') || '';\n  var shouldAppend = event.getParameter('should_append_sheets');\n  if (shouldAppend) {\n    event.setParameter('sheets_status', sheetsResp);\n    event.setParameter('status', 'SUCCESS_RECORDED_IN_SHEETS');\n  } else {\n    event.setParameter('sheets_status', 'SKIPPED');\n  }\n}\n\nfunction executeScript(event) {\n  executesScript(event);\n}"
+          }
+        }
+      },
+      "nextTasks": [
+        {
+          "taskId": "9",
+          "condition": "$has_file_to_download$ = true",
+          "displayName": "If file came from Drive"
+        }
+      ]
+    },
+    {
+      "task": "GenericRestV2Task",
+      "taskId": "9",
+      "displayName": "Move Processed File to Subfolder",
+      "taskExecutionStrategy": "WHEN_ALL_SUCCEED",
+      "parameters": {
+        "throwError": {
+          "key": "throwError",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "responseBody": {
+          "key": "responseBody",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_9_responseBody`$"
+              ]
+            }
+          }
+        },
+        "responseHeader": {
+          "key": "responseHeader",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_9_responseHeader`$"
+              ]
+            }
+          }
+        },
+        "responseStatus": {
+          "key": "responseStatus",
+          "value": {
+            "stringArray": {
+              "stringValues": [
+                "$`Task_9_responseStatus`$"
+              ]
+            }
+          }
+        },
+        "userAgent": {
+          "key": "userAgent",
+          "value": {
+            "stringValue": ""
+          }
+        },
+        "httpMethod": {
+          "key": "httpMethod",
+          "value": {
+            "stringValue": "PATCH"
+          }
+        },
+        "url": {
+          "key": "url",
+          "value": {
+            "stringValue": "https://www.googleapis.com/drive/v3/files/$file_id$?addParents=1L1-U8pKxw0HovNW8P2T0-c9DwosiCKcZ&removeParents=14dZ6mA6hNNOqxixI679NG2mSCG6g_dMO"
+          }
+        },
+        "urlFetchingService": {
+          "key": "urlFetchingService",
+          "value": {
+            "stringValue": "HARPOON"
+          }
+        },
+        "useSSL": {
+          "key": "useSSL",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "disableSSLValidation": {
+          "key": "disableSSLValidation",
+          "value": {
+            "booleanValue": false
+          }
+        },
+        "followRedirects": {
+          "key": "followRedirects",
+          "value": {
+            "booleanValue": true
+          }
+        },
+        "requestorId": {
+          "key": "requestorId",
+          "value": {
+            "stringValue": ""
+          }
+        },
+        "authConfig": {
+          "key": "authConfig",
+          "value": {
+            "jsonValue": "{\"@type\": \"type.googleapis.com/enterprise.crm.eventbus.authconfig.AuthConfigTaskParam\", \"authConfigId\": \"e2bbf6a3-8d6b-43a4-a491-5011bc9bee1e\"}"
+          }
+        },
+        "requestBody": {
+          "key": "requestBody",
+          "value": {
+            "stringValue": "{}"
+          }
+        },
+        "httpParams": {
+          "key": "httpParams"
+        },
+        "urlQueryStrings": {
+          "key": "urlQueryStrings"
+        },
+        "additionalHeaders": {
+          "key": "additionalHeaders"
+        }
+      }
+    }
+  ],
+  "integrationParameters": [
+    {
+      "key": "agent_endpoint_url",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "IN",
+      "defaultValue": {
+        "stringValue": "https://us-west1-aiplatform.googleapis.com/v1beta1/projects/1023905883743/locations/us-west1/reasoningEngines/4903210531415916544/a2a/v1/message:stream"
+      }
+    },
+    {
+      "key": "folder_id",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "IN",
+      "defaultValue": {
+        "stringValue": "14dZ6mA6hNNOqxixI679NG2mSCG6g_dMO"
+      }
+    },
+    {
+      "key": "spreadsheet_id",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "IN",
+      "defaultValue": {
+        "stringValue": "1mjqIz1LvNwyZSj1_LTfKcMVbb4jDIULjNb-YQmkrKr8"
+      }
+    },
+    {
+      "key": "document_name",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "IN_OUT",
+      "defaultValue": {
+        "stringValue": ""
+      }
+    },
+    {
+      "key": "document_content",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "IN",
+      "defaultValue": {
+        "stringValue": ""
+      }
+    },
+    {
+      "key": "drive_download_url",
+      "dataType": "STRING_VALUE",
+      "defaultValue": {
+        "stringValue": ""
+      }
+    },
+    {
+      "key": "has_file_to_download",
+      "dataType": "BOOLEAN_VALUE",
+      "defaultValue": {
+        "booleanValue": false
+      }
+    },
+    {
+      "key": "has_document_to_process",
+      "dataType": "BOOLEAN_VALUE",
+      "defaultValue": {
+        "booleanValue": false
+      }
+    },
+    {
+      "key": "should_append_sheets",
+      "dataType": "BOOLEAN_VALUE",
+      "defaultValue": {
+        "booleanValue": false
+      }
+    },
+    {
+      "key": "agent_request_body",
+      "dataType": "STRING_VALUE",
+      "defaultValue": {
+        "stringValue": ""
+      }
+    },
+    {
+      "key": "sheets_append_body",
+      "dataType": "STRING_VALUE",
+      "defaultValue": {
+        "stringValue": ""
+      }
+    },
+    {
+      "key": "acima_de_mil",
+      "dataType": "BOOLEAN_VALUE",
+      "inputOutputType": "OUT",
+      "defaultValue": {
+        "booleanValue": false
+      }
+    },
+    {
+      "key": "valor_causa",
+      "dataType": "DOUBLE_VALUE",
+      "inputOutputType": "OUT",
+      "defaultValue": {
+        "doubleValue": 0.0
+      }
+    },
+    {
+      "key": "analysis_result",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "OUT",
+      "defaultValue": {
+        "stringValue": ""
+      }
+    },
+    {
+      "key": "sheets_status",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "OUT",
+      "defaultValue": {
+        "stringValue": ""
+      }
+    },
+    {
+      "key": "status",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "OUT",
+      "defaultValue": {
+        "stringValue": "INITIALIZED"
+      }
+    },
+    {
+      "key": "`Task_1_responseBody`",
+      "dataType": "STRING_VALUE",
+      "displayName": "`Task_1_responseBody`",
+      "isTransient": true,
+      "producer": "1_1"
+    },
+    {
+      "key": "`Task_1_responseHeader`",
+      "dataType": "STRING_VALUE",
+      "displayName": "`Task_1_responseHeader`",
+      "isTransient": true,
+      "producer": "1_1"
+    },
+    {
+      "key": "`Task_1_responseStatus`",
+      "dataType": "STRING_VALUE",
+      "displayName": "`Task_1_responseStatus`",
+      "isTransient": true,
+      "producer": "1_1"
+    },
+    {
+      "key": "`Task_3_responseBody`",
+      "dataType": "STRING_VALUE",
+      "displayName": "`Task_3_responseBody`",
+      "isTransient": true,
+      "producer": "1_3"
+    },
+    {
+      "key": "`Task_3_responseHeader`",
+      "dataType": "STRING_VALUE",
+      "displayName": "`Task_3_responseHeader`",
+      "isTransient": true,
+      "producer": "1_3"
+    },
+    {
+      "key": "`Task_3_responseStatus`",
+      "dataType": "STRING_VALUE",
+      "displayName": "`Task_3_responseStatus`",
+      "isTransient": true,
+      "producer": "1_3"
+    },
+    {
+      "key": "`Task_5_responseBody`",
+      "dataType": "STRING_VALUE",
+      "displayName": "`Task_5_responseBody`",
+      "isTransient": true,
+      "producer": "1_5"
+    },
+    {
+      "key": "`Task_5_responseHeader`",
+      "dataType": "STRING_VALUE",
+      "displayName": "`Task_5_responseHeader`",
+      "isTransient": true,
+      "producer": "1_5"
+    },
+    {
+      "key": "`Task_5_responseStatus`",
+      "dataType": "STRING_VALUE",
+      "displayName": "`Task_5_responseStatus`",
+      "isTransient": true,
+      "producer": "1_5"
+    },
+    {
+      "key": "`Task_7_responseBody`",
+      "dataType": "STRING_VALUE",
+      "displayName": "`Task_7_responseBody`",
+      "isTransient": true,
+      "producer": "1_7"
+    },
+    {
+      "key": "`Task_7_responseHeader`",
+      "dataType": "STRING_VALUE",
+      "displayName": "`Task_7_responseHeader`",
+      "isTransient": true,
+      "producer": "1_7"
+    },
+    {
+      "key": "`Task_7_responseStatus`",
+      "dataType": "STRING_VALUE",
+      "displayName": "`Task_7_responseStatus`",
+      "isTransient": true,
+      "producer": "1_7"
+    },
+    {
+      "key": "file_id",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "IN_OUT_TYPE_UNSPECIFIED"
+    },
+    {
+      "key": "`Task_9_responseBody`",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "IN_OUT_TYPE_UNSPECIFIED"
+    },
+    {
+      "key": "`Task_9_responseHeader`",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "IN_OUT_TYPE_UNSPECIFIED"
+    },
+    {
+      "key": "`Task_9_responseStatus`",
+      "dataType": "STRING_VALUE",
+      "inputOutputType": "IN_OUT_TYPE_UNSPECIFIED"
+    }
+  ]
+}

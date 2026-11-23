@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "skills": {
+    "application-integration-authoring": {
+      "source": "google/skills",
+      "commit": "609310dcb093f772721b0adec46363faa3bcf652",
+      "sourceType": "github",
+      "skillPath": "skills/cloud/application-integration-authoring/SKILL.md",
+      "computedHash": "78817fbdeb5ca264110934e17b404bca35e65d5463427c62ced846086a0c2ae4"
+    },
+    "application-integration-basics": {
+      "source": "google/skills",
+      "commit": "609310dcb093f772721b0adec46363faa3bcf652",
+      "sourceType": "github",
+      "skillPath": "skills/cloud/application-integration-basics/SKILL.md",
+      "computedHash": "5cea6b9c9fc646db9744706a079310cf49d55f3cd5aacd776207b131e41c75c7"
+    },
+    "application-integration-troubleshooting": {
+      "source": "google/skills",
+      "commit": "609310dcb093f772721b0adec46363faa3bcf652",
+      "sourceType": "github",
+      "skillPath": "skills/cloud/application-integration-troubleshooting/SKILL.md",
+      "computedHash": "a664a2b198c491c552b3a43ae0d6765cbb359ae13d8065925a1c910fcd4f92ca"
+    }
+  }
+}
