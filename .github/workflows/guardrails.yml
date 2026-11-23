@@ -1,0 +1,73 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: guardrails
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: "8.21.2"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+      - name: Scan full git history for secrets
+        run: ./gitleaks git --redact --verbose --exit-code 1 .
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          files=$(git ls-files '*.sh')
+          if [ -n "${files}" ]; then shellcheck --severity=warning ${files}; fi
+
+  license-headers:
+    name: license-headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: LICENSE and Apache 2.0 headers
+        run: |
+          set -euo pipefail
+          test -f LICENSE || { echo "::error::LICENSE file missing"; exit 1; }
+          missing=0
+          for f in $(git ls-files '*.sh' '*.tf' '*.py' '*.js' '*.ts' '*.go' '*.java' '*.yml' '*.yaml'); do
+            if ! head -n 20 "$f" | grep -Eq 'Licensed under the Apache License, Version 2.0|SPDX-License-Identifier: Apache-2.0'; then
+              echo "::error file=${f}::missing Apache 2.0 license header"; missing=1
+            fi
+          done
+          exit "${missing}"

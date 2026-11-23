@@ -3,7 +3,7 @@
 [![Google Cloud](https://img.shields.io/badge/Google_Cloud-Application_Integration-4285F4?logo=google-cloud&logoColor=white)](https://cloud.google.com/application-integration)
 [![Vertex AI](https://img.shields.io/badge/Vertex_AI-Gemini-8E75B2?logo=google&logoColor=white)](https://cloud.google.com/vertex-ai)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 Este repositório contém um laboratório de referência para construção, teste, publicação e orquestração de fluxos corporativos no **Google Cloud Application Integration**, utilizando **Vertex AI (Gemini)**, **Google Drive**, **Google Sheets**, **BigQuery** e **Salesforce CDC**, além de **Skills de Agentes de IA** (`agent skills`) para desenvolvimento assistido por modelos de linguagem (Gemini CLI, Claude Code, etc.).
 
@@ -328,6 +328,8 @@ python3 execute_test.py
 
 ---
 
-## 📄 Licença
+## 📄 Licença & Aviso Legal (Disclaimer)
 
-Distribuído sob a licença MIT. Veja `LICENSE` para mais detalhes.
+Distribuído sob a licença **Apache License 2.0**. Consulte o arquivo [LICENSE](LICENSE) para obter o texto completo da licença.
+
+> **Aviso (AS-IS Notice):** Este repositório contém código de exemplo e demonstração publicado "NO ESTADO EM QUE SE ENCONTRA" (AS-IS), sem garantias ou condições de qualquer tipo. Este não é um produto oficial com suporte do Google.
